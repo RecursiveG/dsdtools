@@ -1,19 +1,19 @@
 // Copyright 2022, Recursive G
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include <string>
-#include <fcntl.h>
-#include <unistd.h>
-#include <sys/mman.h>
 #include <cinttypes>
 #include <cstdlib>
+#include <fcntl.h>
+#include <string>
+#include <sys/mman.h>
+#include <unistd.h>
 
+#include "absl/cleanup/cleanup.h"
 #include "absl/flags/flag.h"
 #include "absl/flags/parse.h"
 #include "absl/flags/usage.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
-#include "absl/cleanup/cleanup.h"
 #include "absl/time/time.h"
 
 using std::string;
@@ -22,8 +22,8 @@ ABSL_FLAG(string, dsf, "", "The DSF file.");
 ABSL_FLAG(string, out, "", "Raw output file.");
 
 struct ChunkDSD {
-  char magic[4];  // "DSD "
-  uint64_t chunk_size;  // size of this chunk, always 28
+  char magic[4];       // "DSD "
+  uint64_t chunk_size; // size of this chunk, always 28
   uint64_t file_size;
   uint64_t metadata_offset;
   void Print() const {
@@ -74,7 +74,7 @@ static_assert(sizeof(ChunkDataHeader) == 12);
 int main(int argc, char *argv[]) {
   // reverse_byte
   uint8_t reverse_bits[256];
-  for (int i=0; i <= 255; i++) {
+  for (int i = 0; i <= 255; i++) {
     int r = 0;
     if (i & 1) r += 128;
     if (i & 2) r += 64;
@@ -101,7 +101,7 @@ int main(int argc, char *argv[]) {
     absl::PrintF("open() failed\n");
     return 1;
   }
-  auto dsf_fd_cleanup = absl::MakeCleanup([=](){close(dsf_fd);});
+  auto dsf_fd_cleanup = absl::MakeCleanup([=]() { close(dsf_fd); });
 
   // size
   off_t dsf_size = lseek(dsf_fd, 0, SEEK_END);
@@ -112,24 +112,26 @@ int main(int argc, char *argv[]) {
   absl::PrintF("File size: %d\n", dsf_size);
 
   // mmap
-  void* dsf_addr = mmap(nullptr, dsf_size, PROT_READ, MAP_SHARED, dsf_fd, 0);
+  void *dsf_addr = mmap(nullptr, dsf_size, PROT_READ, MAP_SHARED, dsf_fd, 0);
   if (dsf_addr == MAP_FAILED) {
     absl::PrintF("mmap() failed\n");
     return 1;
   }
-  auto mmap_cleanup = absl::MakeCleanup([=](){munmap(dsf_addr, dsf_size);});
+  auto mmap_cleanup = absl::MakeCleanup([=]() { munmap(dsf_addr, dsf_size); });
 
   // memory reader
-  const char* pointer = static_cast<const char*>(dsf_addr);
+  const char *pointer = static_cast<const char *>(dsf_addr);
   uint64_t remained_bytes = dsf_size;
-  auto next = [&]<typename T>(uint64_t offset, uint64_t request_bytes = sizeof(T)) -> const T* {
-    if (remained_bytes < offset + request_bytes) return nullptr;
+  auto next = [&]<typename T>(uint64_t offset,
+                              uint64_t request_bytes = sizeof(T)) -> const T * {
+    if (remained_bytes < offset + request_bytes)
+      return nullptr;
     pointer += offset;
-    return reinterpret_cast<const T*>(pointer);
+    return reinterpret_cast<const T *>(pointer);
   };
 
   // File header
-  const ChunkDSD* chunk_dsd = next.operator()<ChunkDSD>(0);
+  const ChunkDSD *chunk_dsd = next.operator()<ChunkDSD>(0);
   if (chunk_dsd == nullptr) {
     absl::PrintF("Unexpected file end\n");
     return 1;
@@ -141,7 +143,7 @@ int main(int argc, char *argv[]) {
   chunk_dsd->Print();
 
   // Fmt chunk
-  const ChunkFormat* chunk_fmt = next.operator()<ChunkFormat>(chunk_dsd->chunk_size);
+  const ChunkFormat *chunk_fmt = next.operator()<ChunkFormat>(chunk_dsd->chunk_size);
   if (chunk_fmt == nullptr) {
     absl::PrintF("Unexpected file end\n");
     return 1;
@@ -153,7 +155,7 @@ int main(int argc, char *argv[]) {
   chunk_fmt->Print();
 
   // Data chunk
-  const ChunkDataHeader* chunk_data = next.operator()<ChunkDataHeader>(chunk_fmt->chunk_size);
+  const ChunkDataHeader *chunk_data = next.operator()<ChunkDataHeader>(chunk_fmt->chunk_size);
   if (chunk_data == nullptr) {
     absl::PrintF("Unexpected file end\n");
     return 1;
@@ -180,7 +182,7 @@ int main(int argc, char *argv[]) {
   uint64_t in_frames = in_blocks / chunk_fmt->channel_num;
   uint64_t valid_bits = chunk_fmt->sample_count * chunk_fmt->bits_per_sample * chunk_fmt->channel_num;
   uint64_t bits_per_frame = 8 * chunk_fmt->block_size_per_channel * chunk_fmt->channel_num;
-  if ((valid_bits-1)/bits_per_frame+1 != in_frames) {
+  if ((valid_bits - 1) / bits_per_frame + 1 != in_frames) {
     absl::PrintF("metadata value not match size");
     return 1;
   }
@@ -207,11 +209,11 @@ int main(int argc, char *argv[]) {
     absl::PrintF("open() out_fd failed\n");
     return 1;
   }
-  auto out_fd_cleanup = absl::MakeCleanup([=](){close(out_fd);});
-  auto write_all = [](int fd, const void* buf, size_t count) {
+  auto out_fd_cleanup = absl::MakeCleanup([=]() { close(out_fd); });
+  auto write_all = [](int fd, const void *buf, size_t count) {
     int offset = 0;
     while (count > 0) {
-      int written = write(fd, static_cast<const char*>(buf) + offset, count);
+      int written = write(fd, static_cast<const char *>(buf) + offset, count);
       if (written < 0) {
         absl::PrintF("bad write");
         exit(1);
@@ -221,25 +223,43 @@ int main(int argc, char *argv[]) {
     }
   };
 
+  if (chunk_fmt->channel_num != 2 || chunk_fmt->bits_per_sample != 1 ||
+      chunk_fmt->block_size_per_channel != 4096) {
+    absl::PrintF("Only supports: channel_num==2 && bits_per_sample==1 && "
+                 "block_size_per_channel==4096\n");
+    return 1;
+  }
+
+  if (chunk_fmt->sample_count % 32 != 0) {
+    absl::PrintF("Sample count is not a multiple of 32, not supported");
+    return 1;
+  }
+
+  absl::PrintF("Writing %d bytes...\n", chunk_fmt->sample_count / 8 * 2);
+  // 8 samples (bits) per byte, stereo
+  uint64_t remain_data_bytes = chunk_fmt->sample_count / 8 * 2;
+  // DSF frame size is 4096B*channel, U32_BE is 32b*channel
   uint64_t frame_ratio = 4096 / 4;
   for (uint64_t frame = 0; frame < in_frames; frame++) {
     // Assuming 2CH, 4096 block size
     auto output = std::make_unique<uint8_t[]>(8192);
-    const auto* input = reinterpret_cast<const uint8_t*>(pointer + 12 + 8192 * frame);
+    const auto *input = reinterpret_cast<const uint8_t *>(pointer + 12 + 8192 * frame);
     for (uint64_t out_frame = 0; out_frame < frame_ratio; out_frame++) {
       for (uint64_t chn = 0; chn < 2; chn++) {
-        output[out_frame * (4*2) + chn*4 + 0] = input[chn*4096 + out_frame*4 + 0];
-        output[out_frame * (4*2) + chn*4 + 1] = input[chn*4096 + out_frame*4 + 1];
-        output[out_frame * (4*2) + chn*4 + 2] = input[chn*4096 + out_frame*4 + 2];
-        output[out_frame * (4*2) + chn*4 + 3] = input[chn*4096 + out_frame*4 + 3];
+        output[out_frame * (4 * 2) + chn * 4 + 0] = input[chn * 4096 + out_frame * 4 + 0];
+        output[out_frame * (4 * 2) + chn * 4 + 1] = input[chn * 4096 + out_frame * 4 + 1];
+        output[out_frame * (4 * 2) + chn * 4 + 2] = input[chn * 4096 + out_frame * 4 + 2];
+        output[out_frame * (4 * 2) + chn * 4 + 3] = input[chn * 4096 + out_frame * 4 + 3];
       }
     }
-    for (uint64_t i = 0; i < 8192; i++) output[i] = reverse_bits[output[i]];
-    write_all(out_fd, output.get(), 8192);
+    for (uint64_t i = 0; i < 8192; i++)
+      output[i] = reverse_bits[output[i]];
+    write_all(out_fd, output.get(), std::min<uint64_t>(8192, remain_data_bytes));
+    remain_data_bytes -= 8192;
   }
-  // TODO: deal with trailing zeros.
 
-  absl::PrintF("aplay -D hw:2,0 -f DSD_U32_BE -c 2 -r %d \"%s\"\n", chunk_fmt->sample_frequency / 8 / 4, absl::GetFlag(FLAGS_out));
+  absl::PrintF("aplay -D hw:2,0 -f DSD_U32_BE -c 2 -r %d \"%s\"\n",
+               chunk_fmt->sample_frequency / 8 / 4, absl::GetFlag(FLAGS_out));
   absl::PrintF("Done\n");
 
   return 0;
